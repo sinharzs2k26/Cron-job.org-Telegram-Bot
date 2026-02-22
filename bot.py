@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 # --- CONFIGURATION ---
-BOT_TOKEN = "8556710977:AAF77jj4_FDGEDlWbx_73PSQQj7pVCGPzaU"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CRON_URL = "https://api.cron-job.org"
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
