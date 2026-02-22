@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 # --- CONFIGURATION ---
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = "8556710977:AAF77jj4_FDGEDlWbx_73PSQQj7pVCGPzaU"
 CRON_URL = "https://api.cron-job.org"
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -83,6 +83,7 @@ async def create_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = get_headers(context)
     if not headers:
         await update.message.reply_text("❌ You are not logged in.\nSend /login")
+        return
     await update.message.reply_text(
         "✨ <b>Create New Cron Job</b>\n\n📝 Enter a Title (e.g., My Bot Ping):",
         reply_markup=ForceReply(selective=True),
@@ -189,13 +190,19 @@ async def handle_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
         url = context.user_data.get("new_job_url")
         interval = int(user_input)
         if "minutes" in prompt:
-            exectype = "minutes" if interval > 1 else "minute"
-            hours = [-1]
-            minutes = [m for m in range(0, 60, interval)]
+            if interval < 1 or interval > 59:
+                await update.message.reply_text("❌ Invalid input. Please enter minutes in range (1-59)")
+            else:
+                exectype = "minutes" if interval > 1 else "minute"
+                hours = [-1]
+                minutes = [m for m in range(0, 60, interval)]
         elif "hours" in prompt:
-            exectype = "hours" if interval > 1 else "hour"
-            hours = [m for m in range(0, 24, interval)]
-            minutes = [0]
+            if interval < 1 or interval > 23:
+                await update.message.reply_text("❌ Invalid input. Please enter hours in range (1-23)")
+            else:
+                exectype = "hours" if interval > 1 else "hour"
+                hours = [m for m in range(0, 24, interval)]
+                minutes = [0]
         payload = {
             "job": {
                 "title": title,
@@ -204,7 +211,7 @@ async def handle_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "saveResponses": True,
                 "schedule": {
                     "timezone": "UTC",
-                    "hours": hours, 
+                    "hours": hours,
                     "mdays": [-1], 
                     "months": [-1], 
                     "wdays": [-1],
