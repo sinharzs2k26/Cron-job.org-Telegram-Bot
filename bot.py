@@ -31,7 +31,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Use it to keep your web services awake, automate backups, or ping any URL on a schedule.\n\n"
         "<b>🚀 Core Features:</b>\n"
         "• <b>Quick List:</b> View all your active cron jobs and their statuses.\n"
-        "• <b>Smart Wizard:</b> Create new jobs with custom intervals (Minutes or Hours).\n"
+        "• <b>Smart Wizard:</b> Create new jobs.\n"
         "• <b>Easy Toggle:</b> Enable or Disable jobs with a single tap.\n"
         "• <b>Job Cleanup:</b> Delete outdated or test jobs immediately.\n\n"
         "<b>📖 How to Start:</b>\n"
@@ -83,7 +83,6 @@ async def create_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = get_headers(context)
     if not headers:
         await update.message.reply_text("❌ You are not logged in.\nSend /login")
-        return
     await update.message.reply_text(
         "✨ <b>Create New Cron Job</b>\n\n📝 Enter a Title (e.g., My Bot Ping):",
         reply_markup=ForceReply(selective=True),
@@ -137,15 +136,6 @@ async def handle_interaction(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif data.startswith("back"):
         await query.answer()
         await jobs(update, context)
-    elif data.startswith("interval_"):
-        await query.answer()
-        exectype = data.split("_")[1]
-        await query.message.reply_html(
-            f"⏳ Enter execution interval in {exectype}.\n"
-            f"(e.g., enter 5 for every 5 {exectype}, or 15 for every 15 {exectype}):",
-            reply_markup=ForceReply(selective=True)
-        )
-        return
 # --- TEXT/REPLY HANDLER ---
 async def handle_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message: return    
@@ -175,34 +165,10 @@ async def handle_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Failed to delete job.")
     elif "Title" in prompt:
         context.user_data["new_job_title"] = user_input
-        await update.message.reply_html("🔗 Enter the URL to ping:", reply_markup=ForceReply(selective=True))
+        await update.message.reply_text("🔗 Enter the URL to ping:", reply_markup=ForceReply(selective=True))
     elif "URL" in prompt:
-        context.user_data["new_job_url"] = user_input
-        text = "🕒 <b>Select execution schedule type:</b>"
-        keyboard = [
-            [InlineKeyboardButton("Minutes (1-59)", callback_data="interval_minutes")],
-            [InlineKeyboardButton("Hours (1-23)", callback_data="interval_hours")]
-        ]
-        await update.message.reply_html(text, reply_markup=InlineKeyboardMarkup(keyboard))
-        
-    elif "interval" in prompt:
         title = context.user_data.get("new_job_title")
-        url = context.user_data.get("new_job_url")
-        interval = int(user_input)
-        if "minutes" in prompt:
-            if interval < 1 or interval > 59:
-                await update.message.reply_text("❌ Invalid input. Please enter minutes in range (1-59)")
-            else:
-                exectype = "minutes" if interval > 1 else "minute"
-                hours = [-1]
-                minutes = [m for m in range(0, 60, interval)]
-        elif "hours" in prompt:
-            if interval < 1 or interval > 23:
-                await update.message.reply_text("❌ Invalid input. Please enter hours in range (1-23)")
-            else:
-                exectype = "hours" if interval > 1 else "hour"
-                hours = [m for m in range(0, 24, interval)]
-                minutes = [0]
+        url = user_input
         payload = {
             "job": {
                 "title": title,
@@ -211,11 +177,11 @@ async def handle_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "saveResponses": True,
                 "schedule": {
                     "timezone": "UTC",
-                    "hours": hours,
+                    "hours": [-1], 
                     "mdays": [-1], 
                     "months": [-1], 
                     "wdays": [-1],
-                    "minutes": minutes
+                    "minutes": [0,5,10,15,20,25,30,35,40,45,50,55]
                 }
             }
         }
@@ -225,10 +191,10 @@ async def handle_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🚀 <b>Job Created!</b>\n"
                 f"📝 <b>Title:</b> <code>{title}</code>\n"
                 f"🔗 <b>URL:</b> <code>{url}</code>\n"
-                f"🕒 <b>Interval:</b> Every {user_input} {exectype}."
+                f"🕒 <b>Interval:</b> Every 5 minutes (default)."
             )
         else:
-            await update.message.reply_text("❌ Error")
+            await update.message.reply_text("❌ Error, Cron-job.org API has fucking problem, it's not my fault. 😑🙂")
 # --- MAIN ---
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
