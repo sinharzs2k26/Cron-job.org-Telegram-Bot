@@ -83,6 +83,7 @@ async def create_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     headers = get_headers(context)
     if not headers:
         await update.message.reply_text("❌ You are not logged in.\nSend /login")
+        return
     await update.message.reply_text(
         "✨ <b>Create New Cron Job</b>\n\n📝 Enter a Title (e.g., My Bot Ping):",
         reply_markup=ForceReply(selective=True),
