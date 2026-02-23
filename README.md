@@ -12,8 +12,4 @@ Bot link: `t.me/CronJobTelegram_bot`
     * **Live Dashboard:** View all your cron jobs in a clean, interactive list with status indicators (🟢/🔴).
     * **Instant Toggles:** Enable or disable any job with a single tap using Inline Buttons.
     * **Job Deletion:** Clean up unwanted or expired tasks instantly.
-
-* **Smart Creation Wizard**
-    * Step-by-step setup for new cron jobs.
-    * Flexible scheduling support for both **Minute-based** and **Hour-based** intervals.
-    * Automated payload generation for complex cron arrays.
+    * **Job Creation:** Step-by-step setup for new cron jobs.
