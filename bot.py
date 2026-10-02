@@ -7,21 +7,80 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from pymongo import MongoClient
+
 # --- CONFIGURATION ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+MONGO_URI = os.environ.get("MONGO_URI")
+DB_NAME = "CronJobTelegram_bot"
 CRON_URL = "https://api.cron-job.org"
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# --- DATABASE SETUP ---
+mongo_client = None
+users_col = None
+
+if MONGO_URI:
+    try:
+        mongo_client = MongoClient(MONGO_URI)
+        db = mongo_client[DB_NAME]
+        users_col = db["users"]
+        users_col.create_index("user_id", unique=True)
+        logger.info("Connected to MongoDB successfully.")
+    except Exception as e:
+        logger.error(f"Failed to connect to MongoDB: {e}")
+else:
+    logger.warning("MONGO_URI / MONGODB_URI not set. Falling back to in-memory context.user_data.")
+
 # --- HELPERS ---
-def get_headers(context):
-    key = context.user_data.get("api_key")
+def get_user_api_key(user_id: int, context=None) -> str | None:
+    if context and "api_key" in context.user_data:
+        return context.user_data["api_key"]
+    if users_col is not None:
+        try:
+            doc = users_col.find_one({"user_id": user_id})
+            if doc and doc.get("api_key"):
+                key = doc["api_key"]
+                if context:
+                    context.user_data["api_key"] = key
+                return key
+        except Exception as e:
+            logger.error(f"Error reading API key from MongoDB: {e}")
+    return None
+
+def set_user_api_key(user_id: int, api_key: str, context=None):
+    if context:
+        context.user_data["api_key"] = api_key
+    if users_col is not None:
+        try:
+            users_col.update_one(
+                {"user_id": user_id},
+                {"$set": {"api_key": api_key}},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error saving API key to MongoDB: {e}")
+
+def delete_user_api_key(user_id: int, context=None):
+    if context and "api_key" in context.user_data:
+        del context.user_data["api_key"]
+    if users_col is not None:
+        try:
+            users_col.delete_one({"user_id": user_id})
+        except Exception as e:
+            logger.error(f"Error deleting API key from MongoDB: {e}")
+
+def get_headers(user_id: int, context=None):
+    key = get_user_api_key(user_id, context)
     if not key: return None
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
 # --- COMMANDS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    is_logged_in = "api_key" in context.user_data
+    is_logged_in = bool(get_user_api_key(user.id, context))
     status_suffix = "✅ Connected to Cron-job.org" if is_logged_in else "❌ Not Logged In"
     welcome_text = (
         "🛠 <b>Cron-Job Manager Bot</b>\n"
@@ -42,7 +101,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_html(welcome_text, disable_web_page_preview=True)
 
 async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if "api_key" in context.user_data:
+    user = update.effective_user
+    if get_user_api_key(user.id, context):
         await update.message.reply_text("You were logged in already!")
     else:
         await update.message.reply_text(
@@ -53,23 +113,31 @@ async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if "api_key" in context.user_data:
-        del context.user_data["api_key"]
+    user = update.effective_user
+    if get_user_api_key(user.id, context):
+        delete_user_api_key(user.id, context)
         await update.message.reply_text("🔒 <b>Logged out.</b> Your API key has been cleared.", parse_mode="HTML")
     else:
         await update.message.reply_text("You weren't logged in!")
 
 async def jobs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    headers = get_headers(context)
+    user = update.effective_user
+    headers = get_headers(user.id, context)
     if not headers:
-        await update.message.reply_text("❌ You are not logged in.\nSend /login")
+        if update.callback_query:
+            await update.callback_query.message.reply_text("❌ You are not logged in.\nSend /login")
+        else:
+            await update.message.reply_text("❌ You are not logged in.\nSend /login")
+        return
     r = requests.get(f"{CRON_URL}/jobs", headers=headers)
     if r.status_code == 200:
-        jobs = r.json().get("jobs", [])
-        if not jobs:
+        jobs_list = r.json().get("jobs", [])
+        if not jobs_list:
+            if update.callback_query:
+                return await update.callback_query.message.reply_text("📭 No jobs found.")
             return await update.message.reply_text("📭 No jobs found.")
         keyboard = []
-        for j in jobs:
+        for j in jobs_list:
             status_icon = "🟢" if j.get("enabled") else "🔴"
             keyboard.append([InlineKeyboardButton(f"{status_icon} {j.get('title')}", callback_data=f"view_{j.get('jobId')}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -80,7 +148,8 @@ async def jobs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_html(text, reply_markup=reply_markup)
 
 async def create_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    headers = get_headers(context)
+    user = update.effective_user
+    headers = get_headers(user.id, context)
     if not headers:
         await update.message.reply_text("❌ You are not logged in.\nSend /login")
         return
@@ -93,7 +162,11 @@ async def create_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_interaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
-    headers = get_headers(context)
+    user = update.effective_user
+    headers = get_headers(user.id, context)
+    if not headers:
+        await query.answer("❌ You are not logged in. Send /login", show_alert=True)
+        return
     if data.startswith("view_"):
         await query.answer()
         job_id = data.split("_")[1]
@@ -142,14 +215,14 @@ async def handle_replies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message: return    
     prompt = update.message.reply_to_message.text
     user_input = update.message.text
-    headers = get_headers(context)
+    user = update.effective_user
+    headers = get_headers(user.id, context)
     if "API" in prompt:
         test = requests.get(f"{CRON_URL}/jobs", headers={"Authorization": f"Bearer {user_input}"})
         if test.status_code == 200:
-            context.user_data["api_key"] = user_input
+            set_user_api_key(user.id, user_input, context)
             await update.message.reply_html(
-                "✅ <b>Login successfull!</b> You can now use management commands.\n\n"
-                "<i>📌 You have to re-login if the bot server gets updates and so your API key gets cleared.</i>\n\n"
+                "✅ <b>Login successful!</b> You can now use management commands.\n\n"
                 "If you want to logout, send /logout and your API key will be cleared."
             )
         else:
